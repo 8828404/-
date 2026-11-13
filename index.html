@@ -28,6 +28,7 @@ button.small{width:auto;padding:8px 12px;font-size:13px;margin:0 6px 6px 0}
 .row{display:flex;gap:10px}
 .row>*{flex:1}
 .tag{display:inline-block;background:#eef2ff;color:#3730a3;border-radius:999px;padding:2px 8px;font-size:11px;margin-right:6px}
+.error-msg { color: #b91c1c; font-size: 14px; font-weight: bold; margin-top: 10px; display: none; text-align: center; }
 </style>
 </head>
 <body>
@@ -59,6 +60,7 @@ button.small{width:auto;padding:8px 12px;font-size:13px;margin:0 6px 6px 0}
   <input id="activity" placeholder="例如 com.example.app.SplashActivity">
   <div class="hint">不确定 ActivityId 就留空，先生成规则去 GKD 里试。</div>
   <button id="genBtn">生成规则</button>
+  <div id="errorMsg" class="error-msg"></div>
 </div>
 
 <div class="card" id="previewCard" style="display:none">
@@ -90,7 +92,19 @@ function selectorFor(text, mode){
   return '@TextView[text~="' + t + '"]';
 }
 
+function showError(msg) {
+  const errDiv = $('errorMsg');
+  if(msg) {
+    errDiv.textContent = msg;
+    errDiv.style.display = 'block';
+  } else {
+    errDiv.style.display = 'none';
+  }
+}
+
 $('genBtn').onclick = () => {
+  showError(''); // 先清空之前的错误提示
+  
   const pkg = $('pkg').value.trim();
   const appName = $('appName').value.trim();
   const scene = $('scene').value;
@@ -98,10 +112,10 @@ $('genBtn').onclick = () => {
   const mode = $('mode').value;
   const activity = $('activity').value.trim();
 
-  if(!pkg){ alert('请先填应用包名'); return; }
-  if(!pkg.includes('.')){ alert('应用包名一般带点，例如 com.example.app'); return; }
-  if(!appName){ alert('请填应用名称'); return; }
-  if(!text){ alert('请填按钮文字，例如 跳过'); return; }
+  if(!pkg){ showError('请先填应用包名'); return; }
+  if(!pkg.includes('.')){ showError('应用包名一般带点，例如 com.example.app'); return; }
+  if(!appName){ showError('请填应用名称'); return; }
+  if(!text){ showError('请填按钮文字，例如 跳过'); return; }
 
   const selector = selectorFor(text, mode);
   const activityLine = activity ? "      activityIds: '" + esc(activity) + "',\n" : '';
@@ -124,4 +138,83 @@ $('genBtn').onclick = () => {
   current = { json5, human, pkg, appName, scene, selector, time: Date.now() };
   $('human').textContent = human;
   $('json5').value = json5;
-  $('previewCard').styl
+  $('previewCard').style.display = 'block';
+  $('copyHint').textContent = '';
+  
+  // 自动滚动到结果区
+  $('previewCard').scrollIntoView({ behavior: 'smooth' });
+};
+
+$('copyBtn').onclick = async () => {
+  if(!current) return;
+  try {
+    await navigator.clipboard.writeText(current.json5);
+    $('copyHint').textContent = '✅ 已复制。去 GKD 里粘贴测试。';
+  } catch(e) {
+    const ta = $('json5');
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);
+    $('copyHint').textContent = '⚠️ 自动复制失败，已帮你全选，请长按文本框手动复制。';
+  }
+};
+
+function loadRules(){
+  try { return JSON.parse(localStorage.getItem(STORE) || '[]'); }
+  catch(e) { return []; }
+}
+function saveRules(rules){ localStorage.setItem(STORE, JSON.stringify(rules)); }
+
+$('saveBtn').onclick = () => {
+  if(!current) return;
+  const rules = loadRules();
+  rules.unshift(current);
+  saveRules(rules);
+  renderList();
+  $('copyHint').textContent = '✅ 已保存到我的规则。';
+};
+
+function renderList(){
+  const rules = loadRules();
+  const box = $('list');
+  if(!rules.length){ box.innerHTML = '<div class="hint">还没有保存的规则。生成一条后点“保存到我的规则”。</div>'; return; }
+  box.innerHTML = '';
+  rules.forEach((r, i) => {
+    const div = document.createElement('div');
+    div.className = 'item';
+    div.innerHTML =
+      '<h3>' + escapeHtml(r.appName) + ' <span class="tag">' + escapeHtml(r.scene) + '</span></h3>' +
+      '<p>' + escapeHtml(r.pkg) + '</p>' +
+      '<p>' + escapeHtml(r.selector) + '</p>' +
+      '<button class="small" data-copy="' + i + '">复制</button>' +
+      '<button class="small danger" data-del="' + i + '">删除</button>';
+    box.appendChild(div);
+  });
+  box.querySelectorAll('[data-copy]').forEach(btn => {
+    btn.onclick = async () => {
+      const r = loadRules()[Number(btn.dataset.copy)];
+      try { await navigator.clipboard.writeText(r.json5); $('copyHint').textContent = '✅ 已复制'; }
+      catch(e){ $('copyHint').textContent = '⚠️ 复制失败，请到规则详情里手动复制'; }
+    };
+  });
+  box.querySelectorAll('[data-del]').forEach(btn => {
+    btn.onclick = () => {
+      if(!confirm('确定删除这条规则？')) return;
+      const rules = loadRules();
+      rules.splice(Number(btn.dataset.del), 1);
+      saveRules(rules);
+      renderList();
+    };
+  });
+}
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+renderList();
+
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('./service-worker.js').catch(() => {});
+}
+</script>
+</body>
+</html>
