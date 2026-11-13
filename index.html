@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>GKD 规则助手</title>
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#0b6bcb">
+<link rel="icon" href="./icon.svg" type="image/svg+xml">
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:#f5f7fb;color:#1f2937;padding:16px 14px 40px}
+h1{font-size:20px;margin:0 0 4px}
+.sub{color:#6b7280;font-size:13px;margin-bottom:14px}
+.card{background:#fff;border-radius:14px;padding:14px;margin-bottom:14px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+label{display:block;font-size:13px;font-weight:600;margin:10px 0 5px;color:#374151}
+input,select,textarea{width:100%;padding:11px 12px;border:1px solid #d1d5db;border-radius:10px;font-size:15px;background:#fff}
+textarea{min-height:150px;font-family:ui-monospace,Consolas,monospace;font-size:13px;line-height:1.5}
+button{border:0;border-radius:10px;padding:12px 14px;font-size:15px;font-weight:600;background:#0b6bcb;color:#fff;width:100%;margin-top:10px}
+button.secondary{background:#e5e7eb;color:#111827}
+button.danger{background:#fee2e2;color:#b91c1c}
+button.small{width:auto;padding:8px 12px;font-size:13px;margin:0 6px 6px 0}
+.hint{font-size:12px;color:#6b7280;margin-top:6px;line-height:1.5}
+.human{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;padding:10px;border-radius:10px;font-size:14px;line-height:1.5;margin-top:10px}
+.item{border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin-bottom:10px}
+.item h3{margin:0 0 4px;font-size:15px}
+.item p{margin:2px 0;font-size:12px;color:#6b7280;word-break:break-all}
+.row{display:flex;gap:10px}
+.row>*{flex:1}
+.tag{display:inline-block;background:#eef2ff;color:#3730a3;border-radius:999px;padding:2px 8px;font-size:11px;margin-right:6px}
+</style>
+</head>
+<body>
+<h1>GKD 规则助手</h1>
+<div class="sub">选场景、填文字，自动生成 GKD 规则。不用写代码。</div>
+
+<div class="card">
+  <label>应用包名（必填）</label>
+  <input id="pkg" placeholder="例如 com.example.app">
+  <label>应用名称（必填）</label>
+  <input id="appName" placeholder="例如 示例应用">
+  <label>场景</label>
+  <select id="scene">
+    <option>开屏广告</option>
+    <option>弹窗关闭</option>
+    <option>视频广告</option>
+    <option>全局规则</option>
+    <option>自定义</option>
+  </select>
+  <label>按钮文字（必填）</label>
+  <input id="btnText" placeholder="例如 跳过、关闭、X">
+  <label>匹配方式</label>
+  <select id="mode">
+    <option value="equals">文字等于</option>
+    <option value="contains">文字包含</option>
+    <option value="regex">正则匹配</option>
+  </select>
+  <label>ActivityId（可选）</label>
+  <input id="activity" placeholder="例如 com.example.app.SplashActivity">
+  <div class="hint">不确定 ActivityId 就留空，先生成规则去 GKD 里试。</div>
+  <button id="genBtn">生成规则</button>
+</div>
+
+<div class="card" id="previewCard" style="display:none">
+  <div class="human" id="human"></div>
+  <label>生成的 JSON5</label>
+  <textarea id="json5" readonly></textarea>
+  <button id="copyBtn">复制规则</button>
+  <button id="saveBtn" class="secondary">保存到我的规则</button>
+  <div class="hint" id="copyHint"></div>
+</div>
+
+<div class="card">
+  <h2 style="font-size:16px;margin:0 0 10px">我的规则</h2>
+  <div id="list"></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const STORE = 'gkd_helper_rules_v1';
+let current = null;
+
+function esc(s){ return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+function escAttr(s){ return String(s).replace(/\\/g,'\\\\').replace(/"/g,'\\"'); }
+
+function selectorFor(text, mode){
+  const t = escAttr(text);
+  if(mode === 'equals') return '@TextView[text="' + t + '"]';
+  if(mode === 'contains') return '@TextView[text*="' + t + '"]';
+  return '@TextView[text~="' + t + '"]';
+}
+
+$('genBtn').onclick = () => {
+  const pkg = $('pkg').value.trim();
+  const appName = $('appName').value.trim();
+  const scene = $('scene').value;
+  const text = $('btnText').value.trim();
+  const mode = $('mode').value;
+  const activity = $('activity').value.trim();
+
+  if(!pkg){ alert('请先填应用包名'); return; }
+  if(!pkg.includes('.')){ alert('应用包名一般带点，例如 com.example.app'); return; }
+  if(!appName){ alert('请填应用名称'); return; }
+  if(!text){ alert('请填按钮文字，例如 跳过'); return; }
+
+  const selector = selectorFor(text, mode);
+  const activityLine = activity ? "      activityIds: '" + esc(activity) + "',\n" : '';
+  const json5 = "{\n" +
+    "  id: '" + esc(pkg) + "',\n" +
+    "  name: '" + esc(appName) + "',\n" +
+    "  groups: [{\n" +
+    "    key: 0,\n" +
+    "    name: '" + esc(scene) + "',\n" +
+    "    rules: [{\n" +
+    activityLine +
+    "      matches: '" + esc(selector) + "',\n" +
+    "    }],\n" +
+    "  }],\n" +
+    "}";
+
+  const modeText = mode === 'equals' ? '等于' : mode === 'contains' ? '包含' : '匹配正则';
+  const human = '在「' + appName + '」的「' + scene + '」场景中，找到文字' + modeText + '「' + text + '」的按钮，自动点击。';
+
+  current = { json5, human, pkg, appName, scene, selector, time: Date.now() };
+  $('human').textContent = human;
+  $('json5').value = json5;
+  $('previewCard').styl
